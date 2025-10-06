@@ -1,3 +1,27 @@
+基本上是[Mastik](https://github.com/0xADE1A1DE/Mastik/tree/main/mastik)，但是对ST-L1PP-AES增加了修改，让他能进行第二轮攻击  
+make:  
+./configure && make && sudo make install  
+run:（cd demo）  
+./ST-L1PP-AES  
+
+修改文件：  
+/demo/ST-L1PP-AES.c  
+/mastik/synctrace.h  
+/src/synctrace.c  
+
+在synctrace.h,synctrace.c中  
+新加了一个records[N_SAMPLES]数组，用于记录每次AES加密使用的明文，和对应的cache的probe时间  
+typedef struct {  
+    uint8_t plaintext[ST_BLOCKBYTES];    
+    uint16_t cache_times[L1_SETS];       
+} st_encryption_record_t;  
+主要修改在ST-L1PP-AES.c中
+
+实验环境：i5-13490F  
+ubuntu22.04  
+本实验似乎非常挑硬件，修改mastik/l1.h适配某些硬件的尝试失败了，你的电脑应该可以直接跑原版的1st round攻击，不然尝试2nd round也没意义
+
+***
 # Mastik: A Micro-Architectural Side-Channel Toolkit
 
 ## About
