@@ -52,12 +52,17 @@ struct synctrace
   st_crypto_f crypto;
   void *cryptoData;
 
-  // Prcoess data
+  // Process data
   int limit;
   uint8_t *split;
   int map[L2_SETS];
   uint8_t clusterMask;
   st_clusters_t clusters;
+  
+
+  st_encryption_record_t *records;
+  int current_record;
+  int max_records;
 };
 
 void dummy_setup_cb(int nrecords, void *data)
@@ -94,50 +99,30 @@ int st_lxpp(lxpp_t lx, int nrecords, st_setup_cb setup, st_exec_cb exec, st_proc
   return nrecords;
 }
 
-/*
-// Synchronized Evict+Time
-int st_l1et(l1pp_t l1, int nrecords, st_setup_cb setup, st_exec_cb exec, st_process_cb process, void *data);
-// Synchronized Evict+Time
-int l1_syncet(l1pp_t l1, int nrecords, uint16_t *results, l1_sync_cb setup, l1_sync_cb exec, void *data) {
-  assert(l1 != NULL);
-  assert(results != NULL);
-  assert(exec != NULL);
-  assert(nrecords >= 0);
-
-  uint16_t dummyres[64];
-
-  if (nrecords == 0)
-    return 0;
-
-  if (setup == NULL)
-    setup = l1_dummy_cb;
-  int len = l1->nsets;
-
-  for (int i = 0; i < nrecords; i++, results++) {
-    setup(l1, i, data);
-    exec(l1, i, data);
-    l1_probe(l1, dummyres);
-    l1_probe(l1, dummyres);
-    l1_probe(l1, dummyres);
-    uint32_t start = rdtscp();
-    exec(l1, i, data);
-    uint32_t res = rdtscp() - start;
-    *results = res > UINT16_MAX ? UINT16_MAX : res;
-  }
-  return nrecords;
-}
-*/
-
 static void spp_setup(int recnum, void *vst)
 {
   synctrace_t st = (synctrace_t)vst;
   for (int i = 0; i < st->blockSize; i++)
     st->input[i] = (rand() & 0xff & ~st->fixMask[i]) | (st->fixData[i] & st->fixMask[i]);
+  
+
+  if (st->records && st->current_record < st->max_records) {
+    memcpy(st->records[st->current_record].plaintext, st->input, st->blockSize);
+  }
 }
 
 static void spp_process(int recnum, void *vst, int nres, uint16_t results[])
 {
   synctrace_t st = (synctrace_t)vst;
+  
+
+  if (st->records && st->current_record < st->max_records) {
+    for (int i = 0; i < nres && i < L2_SETS; i++) {
+      st->records[st->current_record].cache_times[i] = results[i] > LIMIT ? LIMIT : results[i];
+    }
+    st->current_record++;
+  }
+  
   for (int byte = 0; byte < st->blockSize; byte++)
   {
     int inputbyte = st->split[byte] & st->clusterMask;
@@ -196,6 +181,7 @@ static void normalise(int blockSize, st_clusters_t clusters,
   }
 }
 
+
 st_clusters_t syncPrimeProbe(int nsamples,
                              int blockSize,
                              int splitinput,
@@ -204,7 +190,9 @@ st_clusters_t syncPrimeProbe(int nsamples,
                              st_crypto_f crypto,
                              void *cryptoData,
                              uint8_t clusterMask,
-                             int cachelevel)
+                             int cachelevel,
+                             st_encryption_record_t **records,  
+                             int *record_count)                
 {
   synctrace_t st = (synctrace_t)malloc(sizeof(struct synctrace));
   memset(st, 0, sizeof(struct synctrace));
@@ -220,6 +208,13 @@ st_clusters_t syncPrimeProbe(int nsamples,
   st->clusters = clusters;
   st->clusterMask = clusterMask;
   st->split = splitinput ? st->input : st->output;
+  
+
+  st->max_records = nsamples;
+  st->current_record = 0;
+  st->records = malloc(nsamples * sizeof(st_encryption_record_t));
+  memset(st->records, 0, nsamples * sizeof(st_encryption_record_t));
+  
   lxpp_t lx;
   if (cachelevel == 1)
     lx = (lxpp_t)l1_prepare(NULL);
@@ -231,37 +226,20 @@ st_clusters_t syncPrimeProbe(int nsamples,
   lx_getmonitoredset(lx, st->map, lx->nmonitored);
   st_lxpp(lx, nsamples, spp_setup, spp_exec, spp_process, st);
 
+
+  if (records) {
+    *records = st->records;
+  } else {
+    free(st->records);  
+  }
+  
+  if (record_count) {
+    *record_count = st->current_record;
+  }
+  
+
   free(st);
   normalise(blockSize, clusters, cachelevel);
   lx_release(lx);
   return clusters;
 }
-
-/*
-st_clusters_t syncEvictTime(int nsamples, 
-			   int blockSize, 
-			   uint8_t *fixMask, 
-			   uint8_t *fixData, 
-			   st_crypto_f crypto,
-			   void *cryptoData,
-			   uint8_t clusterMask) {
-  synctrace_t st = (synctrace_t)malloc(sizeof(struct synctrace));
-  memset(st, 0, sizeof(struct synctrace));
-  st->blockSize = blockSize;
-  if (fixMask && fixData) {
-    memcpy(st->fixMask, fixMask, blockSize);
-    memcpy(st->fixData, fixData, blockSize);
-  }
-  st->crypto = crypto;
-  st->cryptoData = cryptoData;
-  st_clusters_t clusters = calloc(blockSize, sizeof(struct st_clusters));
-  st->clusters = clusters;
-  st->clusterMask = clusterMask;
-  l1pp_t l1 = l1_prepare(NULL);
-  l1_getmonitoredset(l1, st->map, L1_SETS);
-  st_l1pp(l1, nsamples, spp_setup, spp_exec, spp_process, st);
-  free(st);
-  normalise(blockSize, clusters);
-  return clusters;
-}
-*/
