@@ -55,15 +55,23 @@ struct st_clusters {
 
 typedef struct st_clusters *st_clusters_t;
 
-st_clusters_t syncPrimeProbe(int nsamples, 
-			      int blocksize, 
-			      int splitinput,
-			      uint8_t *fixMask, 
-			      uint8_t *fixData, 
-			      st_crypto_f crypto,
-			      void *cryptoData,
-			      uint8_t clusterMask,
-						int cachelevel);
+typedef struct {
+    uint8_t plaintext[ST_BLOCKBYTES];  
+    uint16_t cache_times[L1_SETS];     
+} st_encryption_record_t;
+
+
+st_clusters_t syncPrimeProbe(int nsamples,
+                             int blockSize,
+                             int splitinput,
+                             uint8_t *fixMask,
+                             uint8_t *fixData,
+                             st_crypto_f crypto,
+                             void *cryptoData,
+                             uint8_t clusterMask,
+                             int cachelevel,
+                             st_encryption_record_t **records,  
+                             int *record_count);                
 
 /*
 st_clusters_t syncEvictTime(int nsamples, 
@@ -77,5 +85,4 @@ st_clusters_t syncEvictTime(int nsamples,
 
 
 #endif  // __SYNCTRACE_H__
-
 
